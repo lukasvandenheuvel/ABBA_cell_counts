@@ -4,6 +4,7 @@
 Created on Fri Sep 17 08:31:08 2021
 
 Statistical quantification of tracing in- and outputs.
+Outputs results in a folder called 'results_python' that is created inside the root.
 
 @author: lukasvandenheuvel
 """
@@ -20,7 +21,7 @@ from readCSV_helpers import *
 #%% ------------------------------ SET PARAMETERS ----------------------------
 # ============================================================================
 
-animal_list = ['TRIO2_11261_Lukas', 'TRIO2_11876_Lukas_v2']
+animal_list = ['TRIO2_11876_Lukas_v2']
 root = '/Users/lukasvandenheuvel/Documents/GRAFF Lab/2021_RabiesTracing/TRIO/'
 path_to_onotlogy_pickle = '../AllenMouseBrainOntology.pk'
 
