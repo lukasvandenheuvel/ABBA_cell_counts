@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import copy
 import pickle
 
-from readCSV_helpers_v2 import *
+from readCSV_helpers import *
 
 #%% ------------------------------ SET PARAMETERS ----------------------------
 # ============================================================================
@@ -131,6 +131,8 @@ mean_results.to_csv( os.path.join(output_path, 'results_mean_cell_counts.csv') )
 print('\nGenerating plots ...')
 
 #%% Plot Rabies+ normalized per hemisphere
+
+
 x_label = '(Rabies+ / Dapi area) / (total Rabies+ / total Dapi area)'
 
 rabies = mean_results['RAB']['PerHemi']
