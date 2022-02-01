@@ -14,7 +14,7 @@ import pandas as pd
 
 #%% ------------------------------ SET PARAMETERS ----------------------------
 # ============================================================================
-path_to_animal = '/Users/lukasvandenheuvel/Documents/GRAFF Lab/2021_RabiesTracing/TRIO/TRIO2_11261_Lukas'
+path_to_animal = '/Users/lukasvandenheuvel/Documents/GRAFF Lab/2021_RabiesTracing/TRIO/TRIO2_test'
 
 #%% -------------------------------- START SCRIPT ----------------------------
 # ============================================================================

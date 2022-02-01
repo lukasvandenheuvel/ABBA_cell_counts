@@ -413,6 +413,25 @@ def sort_hemispheres(data):
     return data_sorted
 
 #%%
+def plot_starter_cells(brain_df, brain_region_dict, output_path):
+    # Starter cell analysis
+    starter_cells = brain_df['RAB_TVA']
+    starter_cells = starter_cells[starter_cells > 0]
+    starter_cells_sorted = sort_hemispheres(starter_cells)
+    
+    # Plot starter cells
+    index = ['%s (%s)'%(brain_region_dict[key],key) for key in starter_cells_sorted.index]
+    plt.figure(figsize=(20,5))
+    plt.tight_layout()
+    b = plt.bar(index, starter_cells_sorted['Sum'])
+    t = plt.xticks(rotation=90)
+    t = plt.title('Starter cells')
+    lbl = plt.ylabel('Starter cells (Rabies+ TVA+)')
+    if not(output_path==None):
+        output_file = os.path.join(output_path, 'starter_cells.pdf')
+        plt.savefig(output_file, bbox_inches='tight')
+
+#%%
 def normalize_cell_counts(brain_df, tracer):
     '''
     Do normalization of the cell counts for one tracer.
@@ -434,96 +453,90 @@ def normalize_cell_counts(brain_df, tracer):
     norm_cell_counts = (cell_counts / area) / (brainwide_cell_counts / brainwide_area)
     
     return norm_cell_counts
-    
+
 #%%
-def plot_bidirectional_bar_chart(data, x_label, brain_region_dict, errorbars=None):
-    '''
-    Plot results from different hemispheres as bidirectional bar chart.
-    '''
+def collect_and_analyze_cell_counts(root, animal_list, tracers, path_to_onotlogy_pickle):
     
-    if not(data.shape[1]==3):
-        raise ValueError('The dataframe to plot should have 3 columns, one for left and one for right and one for sum.')
+    # Store the seperate hemispheres, and the sum of the hemispheres:
+    hemispheres = ['Left', 'Right', 'Sum']
+
+    # Load brain ontology (brain hierarchy) --------------------------------------
+    with open(path_to_onotlogy_pickle,"rb") as f:
+        ontology_dict = pickle.load(f)
+    edges = ontology_dict['BrainOntologyEdges']
+    tree = ontology_dict['BrainOntologyTree']
+    brain_region_dict = ontology_dict['BrainOntologyRegions']
+
+    # Initialize a results dataframe. --------------------------------------------
+    # This is a dataframe with hierarchical columns. 
+    # Hierarchy: tracer -> animal -> hemisphere.
+    iterables = [tracers, animal_list, hemispheres]
+    multi_index = pd.MultiIndex.from_product(iterables)
+    results = pd.DataFrame(np.nan, index=brain_region_dict.keys(), columns=multi_index)
+
+    # Loop over animals, load the data and normalize counts --------------------
+    for animal in animal_list:
+
+        print('Importing slices in '+animal+'...')
+        input_path = os.path.join(root, animal, 'results')
+        output_path = os.path.join(root, animal, 'results_python')
+
+        # Load regions to exclude for this animal
+        path_to_exclusion_file = os.path.join(root, animal, 'RegionsToExclude.csv')
+        if not(os.path.exists(path_to_exclusion_file)):
+            raise ValueError('Cannot find exclusion file for animal ' + animal + '!')
+        exclude_dict = list_regions_to_exclude(path_to_exclusion_file)
+
+        # Load cell counts, excluding the regions we want to exclude
+        df_list,slice_regions,slice_data = load_cell_counts(input_path, exclude_dict, edges, tree)
+        print('Imported ' + str(len(df_list)) + ' slices.\n')
+
+        # Now comes the tricky part. We'll first concatenate the dataframes
+        # of all slices into one big dataframe (brain_df).
+        # Then, we combine the rows with the same index (=region name), and sum them.
+        # That is, we sum the results (area, cell counts) per region across slices.
+        brain_df = pd.concat(df_list)
+        brain_df = brain_df.groupby(brain_df.index, axis=0).sum()
         
-    font_color = '#525252'
-    hfont = {'fontname':'Calibri'}
-    fontsize = 35
-    facecolor = '#eaeaf2'
-    color_red = '#fd625e'
-    color_blue = '#01b8aa'
-    index = ['%s (%s)'%(brain_region_dict[key],key) for key in data.index]
-    column_left = data['Left']
-    column_right = data['Right']
-    xerr_left = None if errorbars is None else errorbars['Left']
-    xerr_right = None if errorbars is None else errorbars['Right']
-    title_left = 'Left'
-    title_right = 'Right'
-    max_value  = np.nanmax(data.to_numpy())
-    
-    # Generate subplots
-    fig, axes = plt.subplots(figsize=(50,120), facecolor=facecolor, ncols=2, sharey=True)
-    fig.tight_layout()
-    
-    # Plot bars and vertical line at x=1
-    axes[0].barh(index, column_left, align='center', color=color_red, zorder=10, xerr=xerr_left)
-    axes[0].set_title(title_left, fontsize=fontsize, pad=15, color=color_red, **hfont)
-    axes[0].axvline(x=1, c='k', linestyle='--')
-    axes[0].set_xlim([0, max_value])
-    axes[1].barh(index, column_right, align='center', color=color_blue, zorder=10, xerr=xerr_right)
-    axes[1].set_title(title_right, fontsize=fontsize, pad=15, color=color_blue, **hfont)
-    axes[1].set_xlim([0, max_value])
-    axes[1].axvline(x=1, c='k', linestyle='--')
+        # Plot starter cells
+        plot_starter_cells(brain_df, brain_region_dict, output_path)
 
-    # Axis specifications
-    axes[0].invert_xaxis() 
-    axes[1].set_xticks(axes[0].get_xticks())
+        # Save brain_df
+        brain_df.to_csv( os.path.join(output_path, animal+'_cell_counts.csv') )
+        print('Raw cell counts are saved to ' + output_path)
 
-    # Adjust subplots to fit them next to each other and add xlabel
-    plt.subplots_adjust(wspace=0, top=0.85, bottom=0.1, left=0.18, right=0.95)
-    xlabel = fig.text(0.565, 0.09, x_label, ha='center', fontsize=fontsize)
+        # Normalize the results
+        for t in tracers: # loop over tracers ('RAB', 'CTB', ...)
+
+            # Normalize
+            normalized_cell_counts = normalize_cell_counts(brain_df, t)
+
+            # Save results per animal
+            present_regions = normalized_cell_counts.index.to_list()
+            for region in present_regions: # loop over all regions present
+                results.loc[region, (t,animal)].update( normalized_cell_counts.loc[region] )
+
+    # Swap hierarchy of columns, to make averaging over animals easier.
+    # The new hierarchy will be Tracer -> Hemisphere -> Animal
+    results = results.swaplevel(axis=1)
     
-    return fig
+    return results
 
 #%%
-def plot_results(data, x_label):
-    
-    # Collect nonzero counts (for plotting) -------------------------
-    nonzero_data = data[data > 0]
-    
-    # Sort by sum of left and right
-    data_sorted = sort_hemispheres(nonzero_data)
-    data_to_plot = data_sorted.sort_values(by=['Sum'])
-    data_to_plot = data_to_plot.drop('Sum', axis=1) # get rid of 'Sum' column, it was only used for sorting
+def average_cell_counts_over_animals(results, tracers):
+    # Calculate means and sems -------------------------------------------------
+    iterables = [tracers, ['PerHemi', 'SummedHemi'], ['Mean', 'Sem']]
+    multi_index = pd.MultiIndex.from_product(iterables)
+    mean_results = pd.DataFrame(np.nan, index=results.index, columns=multi_index)
 
-    # Plot results -----------------------------------
-    fig = plot_bidirectional_bar_chart(data_to_plot, x_label)
-    
-    return fig
+    for t in tracers:
 
-#%%
-def plot_horizontal_bar_chart(data, brain_region_dict):
-    
-    # remove all regions without any cells present, and sort by sum.
-    data = data[data['Mean'] > 0].sort_values(by=['Mean'])
+        # Normalization per hemisphere: Treat 'Left' and 'Right' as seperate animals to calculate average
+        mean_results.loc[:, (t,'PerHemi','Mean')] = results[t][['Left','Right']].mean(axis=1)
+        mean_results.loc[:, (t,'PerHemi','Sem')] = results[t][['Left','Right']].sem(axis=1)
 
-    mean = data['Mean']
-    errorbars = data['Sem']
-
-    font_color = '#525252'
-    fontsize = 35
-    facecolor = '#eaeaf2'
-    color_red = '#fd625e'
-    color_blue = '#01b8aa'
-    index = ['%s (%s)'%(brain_region_dict[key],key) for key in data.index]
-    xerr = None if errorbars is None else errorbars
-    max_value  = np.nanmax(mean.to_numpy()) + np.nanmax(errorbars.to_numpy())
-
-    # Generate figure
-    fig = plt.figure(figsize=(50,120), facecolor=facecolor)
-    fig.tight_layout()
-
-    # Plot bars and vertical line at x=1
-    plt.barh(index, mean, align='center', color=color_red, zorder=10, xerr=xerr)
-    plt.axvline(x=1, c='k', linestyle='--')
-    plt.xlim([0, 1.2 * max_value])
-    
-    return fig
+        # Normalization with summed hemispheres: Sum left and right, and average over animals.
+        mean_results.loc[:, (t,'SummedHemi','Mean')] = results[t]['Sum'].mean(axis=1)
+        mean_results.loc[:, (t,'SummedHemi','Sem')] = results[t]['Sum'].sem(axis=1)
+        
+    return mean_results
